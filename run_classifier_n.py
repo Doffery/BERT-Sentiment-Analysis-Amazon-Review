@@ -34,7 +34,7 @@ from utils import DEFINE_integer
 from utils import DEFINE_string
 from utils import print_user_flags
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '2'
 
 logger = utils.logger
 
@@ -349,7 +349,7 @@ class ARProcessor(DataProcessor):
   def get_train_examples(self, data_dir):
     """See base class."""
     return self._create_examples(
-        self._read_csv(os.path.join(data_dir, "./xa1k"),'"'), "train")
+        self._read_csv(os.path.join(data_dir, "./xa100k"),'"'), "train")
 
   def get_dev_examples(self, data_dir):
     """See base class."""
@@ -443,8 +443,8 @@ def convert_single_example(ex_index, example, label_list, max_seq_length,
   else:
     # Account for [CLS] and [SEP] with "- 2"
     if len(tokens_a) > max_seq_length - 2:
-      logger.info('exceed: ', tokens_a[0:(max_seq_length - 2)], '|||', 
-            tokens_a[(max_seq_length - 2):])
+      # logger.info('exceed: ', tokens_a[0:(max_seq_length - 2)], '|||', 
+      #        tokens_a[(max_seq_length - 2):])
       tokens_a = tokens_a[0:(max_seq_length - 2)]
 
   # The convention in BERT is:
@@ -704,7 +704,8 @@ def model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate,
     if mode == tf.estimator.ModeKeys.TRAIN:
 
       train_op = optimization.create_optimizer(
-          total_loss, learning_rate, num_train_steps, num_warmup_steps, use_tpu)
+          total_loss, learning_rate, num_train_steps, num_warmup_steps, 
+          use_tpu, lr_decay='cosine')
 
       output_spec = tf.contrib.tpu.TPUEstimatorSpec(
           mode=mode,

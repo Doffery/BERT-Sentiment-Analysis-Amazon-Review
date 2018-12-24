@@ -21,21 +21,65 @@ from __future__ import print_function
 import re
 import tensorflow as tf
 
-
-def create_optimizer(loss, init_lr, num_train_steps, num_warmup_steps, use_tpu):
+def create_optimizer(loss, init_lr, num_train_steps, num_warmup_steps, use_tpu,
+                     lr_decay='poly'):
   """Creates an optimizer training op."""
   global_step = tf.train.get_or_create_global_step()
 
   learning_rate = tf.constant(value=init_lr, shape=[], dtype=tf.float32)
+  
+  if lr_decay == 'poly':
+    # Implements linear decay of the learning rate.
+    learning_rate = tf.train.polynomial_decay(
+        learning_rate,
+        global_step,
+        num_train_steps,
+        end_learning_rate=0.0,
+        power=1.0,
+        cycle=False)
+  elif lr_decay == 'exp':
+    lr_dec_start = 0
+    lr_dec_every = 100
+    lr_dec_rate = 0.9
+    lr_dec_min = 0
+    learning_rate = tf.train.exponential_decay(
+        learning_rate, 
+        tf.maximum(global_step - lr_dec_start, 0), lr_dec_every,
+        lr_dec_rate, staircase=True)
+    if lr_dec_min is not None:
+      learning_rate = tf.maximum(learning_rate, lr_dec_min)
+  elif lr_decay == 'cosine':
+    lr_max = learning_rate
+    lr_min = learning_rate/100
+    lr_T_0 = 5
+    lr_T_mul = 2
+    num_train_batches = 24
 
-  # Implements linear decay of the learning rate.
-  learning_rate = tf.train.polynomial_decay(
-      learning_rate,
-      global_step,
-      num_train_steps,
-      end_learning_rate=0.0,
-      power=1.0,
-      cycle=False)
+    curr_step = global_step // num_train_batches
+
+    last_reset = tf.Variable(0, dtype=tf.int32, trainable=False,
+        name="last_reset")
+    T_i = tf.Variable(lr_T_0, dtype=tf.int32, trainable=False, name="T_i")
+    T_curr = curr_step - last_reset
+
+    def _update():
+      update_last_reset = tf.assign(last_reset, curr_step, use_locking=True)
+      update_T_i = tf.assign(T_i, T_i * lr_T_mul, use_locking=True)
+      with tf.control_dependencies([update_last_reset, update_T_i]):
+        rate = tf.to_float(T_curr) / tf.to_float(T_i) * 3.1415926
+        lr = lr_min + 0.5 * (lr_max - lr_min) * (1.0 + tf.cos(rate))
+      return lr
+
+    def _no_update():
+      rate = tf.to_float(T_curr) / tf.to_float(T_i) * 3.1415926
+      lr = lr_min + 0.5 * (lr_max - lr_min) * (1.0 + tf.cos(rate))
+      return lr
+
+    learning_rate = tf.cond(
+        tf.greater_equal(T_curr, T_i), _update, _no_update)
+    print()
+  else:
+    raise ValueError("Unknown lr_decay {}".format(lr_decay))
 
   # Implements linear warmup. I.e., if global_step < num_warmup_steps, the
   # learning rate will be `global_step/num_warmup_steps * init_lr`.
