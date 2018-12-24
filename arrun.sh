@@ -4,7 +4,7 @@ python run_classifier_n.py \
   --task_name=AR \
   --do_train=true \
   --do_eval=true \
-  --data_dir=$BERT_BASE_DIR \
+  --data_dir=./data \
   --vocab_file=$BERT_BASE_DIR/vocab.txt \
   --bert_config_file=$BERT_BASE_DIR/bert_config.json \
   --init_checkpoint=$BERT_BASE_DIR/bert_model.ckpt \
@@ -12,4 +12,5 @@ python run_classifier_n.py \
   --train_batch_size=24 \
   --learning_rate=2e-5 \
   --num_train_epochs=3.0 \
-  --output_dir=./tmp/
+  --output_dir=./tmp/size/_1k \
+#  --use_record

@@ -26,45 +26,20 @@ import optimization
 import tokenization
 import re
 import time
+import utils
 import tensorflow as tf
+from utils import DEFINE_bool
+from utils import DEFINE_float
+from utils import DEFINE_integer
+from utils import DEFINE_string
+from utils import print_user_flags
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+
+logger = utils.logger
 
 flags = tf.flags
 FLAGS = flags.FLAGS
-user_flags = []
-
-def DEFINE_string(name, default_value, doc_string):
-    tf.app.flags.DEFINE_string(name, default_value, doc_string)
-    global user_flags
-    user_flags.append(name)
-
-
-def DEFINE_integer(name, default_value, doc_string):
-    tf.app.flags.DEFINE_integer(name, default_value, doc_string)
-    global user_flags
-    user_flags.append(name)
-
-
-def DEFINE_float(name, default_value, doc_string):
-    tf.app.flags.DEFINE_float(name, default_value, doc_string)
-    global user_flags
-    user_flags.append(name)
-
-
-def DEFINE_bool(name, default_value, doc_string):
-    tf.app.flags.DEFINE_boolean(name, default_value, doc_string)
-    global user_flags
-    user_flags.append(name)
-
-def print_user_flags(line_limit=80):
-    global user_flags
-    for flag_name in sorted(user_flags):
-        value = "{}".format(getattr(FLAGS, flag_name))
-        log_string = flag_name
-        log_string += "." * (line_limit - len(flag_name) - len(value))
-        log_string += value
-        print(log_string)
 
 ## Required parameters
 DEFINE_string(
@@ -374,17 +349,17 @@ class ARProcessor(DataProcessor):
   def get_train_examples(self, data_dir):
     """See base class."""
     return self._create_examples(
-        self._read_csv(os.path.join(data_dir, "../train.ft.csv"),'"'), "train")
+        self._read_csv(os.path.join(data_dir, "./xa1k"),'"'), "train")
 
   def get_dev_examples(self, data_dir):
     """See base class."""
     return self._create_examples(
-        self._read_csv(os.path.join(data_dir, "../test.ft.csv"), '"'), "dev")
+        self._read_csv(os.path.join(data_dir, "./xab"), '"'), "dev")
 
   def get_test_examples(self, data_dir):
     """See base class."""
     return self._create_examples(
-        self._read_csv(os.path.join(data_dir, "../test.ft.csv"),'"'), "test")
+        self._read_csv(os.path.join(data_dir, "./xaa"),'"'), "test")
 
   def get_labels(self):
     """See base class."""
@@ -468,6 +443,8 @@ def convert_single_example(ex_index, example, label_list, max_seq_length,
   else:
     # Account for [CLS] and [SEP] with "- 2"
     if len(tokens_a) > max_seq_length - 2:
+      logger.info('exceed: ', tokens_a[0:(max_seq_length - 2)], '|||', 
+            tokens_a[(max_seq_length - 2):])
       tokens_a = tokens_a[0:(max_seq_length - 2)]
 
   # The convention in BERT is:
@@ -893,10 +870,10 @@ def main(_):
   num_warmup_steps = None
   if FLAGS.do_train:
     train_examples = processor.get_train_examples(FLAGS.data_dir)
-    if FLAGS.do_eval:
-        valsize = int(len(train_examples) / 9)  # take 10% as validation
-        eval_examples = train_examples[:valsize]
-        train_examples = train_examples[valsize:]
+    # if FLAGS.do_eval:
+    #     valsize = int(len(train_examples) / 9)  # take 10% as validation
+    #     eval_examples = train_examples[:valsize]
+    #     train_examples = train_examples[valsize:]
     num_train_steps = int(
         len(train_examples) / FLAGS.train_batch_size * FLAGS.num_train_epochs)
     num_warmup_steps = int(num_train_steps * FLAGS.warmup_proportion)
@@ -922,8 +899,8 @@ def main(_):
       predict_batch_size=FLAGS.predict_batch_size)
 
   if FLAGS.do_train:
+    train_file = os.path.join(FLAGS.output_dir, "train.tf_record")
     if not FLAGS.use_record:
-        train_file = os.path.join(FLAGS.output_dir, "train.tf_record")
         file_based_convert_examples_to_features(train_examples, label_list, 
                                                 FLAGS.max_seq_length, 
                                                 tokenizer, train_file)
@@ -941,10 +918,10 @@ def main(_):
   print('before eval', time.localtime())
 
   if FLAGS.do_eval:
+    eval_file = os.path.join(FLAGS.output_dir, "eval.tf_record")
+    if eval_examples == None:
+        eval_examples = processor.get_dev_examples(FLAGS.data_dir)
     if not FLAGS.use_record:
-        if eval_examples == None:
-            eval_examples = processor.get_dev_examples(FLAGS.data_dir)
-        eval_file = os.path.join(FLAGS.output_dir, "eval.tf_record")
         file_based_convert_examples_to_features(eval_examples, label_list, 
                                                 FLAGS.max_seq_length, 
                                                 tokenizer, eval_file)
@@ -1024,5 +1001,5 @@ if __name__ == "__main__":
   flags.mark_flag_as_required("vocab_file")
   flags.mark_flag_as_required("bert_config_file")
   flags.mark_flag_as_required("output_dir")
-  FLAGS.output_dir += time.time()
+  FLAGS.output_dir += str(int(time.time()))
   tf.app.run()
