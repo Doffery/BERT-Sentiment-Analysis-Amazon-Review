@@ -11,6 +11,7 @@ python run_classifier_n.py \
   --max_seq_length=128 \
   --train_batch_size=24 \
   --learning_rate=2e-5 \
-  --num_train_epochs=3.0 \
-  --output_dir=./tmp/size/_1k \
+  --lr_decay=exp \
+  --num_train_epochs=7.0 \
+  --output_dir=./tmp/tune_small/exp_5e_96_15
 #  --use_record

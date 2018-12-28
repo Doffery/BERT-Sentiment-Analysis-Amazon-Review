@@ -39,8 +39,8 @@ def create_optimizer(loss, init_lr, num_train_steps, num_warmup_steps, use_tpu,
         cycle=False)
   elif lr_decay == 'exp':
     lr_dec_start = 0
-    lr_dec_every = 100
-    lr_dec_rate = 0.9
+    lr_dec_every = 15
+    lr_dec_rate = 0.96
     lr_dec_min = 0
     learning_rate = tf.train.exponential_decay(
         learning_rate, 
@@ -50,12 +50,12 @@ def create_optimizer(loss, init_lr, num_train_steps, num_warmup_steps, use_tpu,
       learning_rate = tf.maximum(learning_rate, lr_dec_min)
   elif lr_decay == 'cosine':
     lr_max = learning_rate
-    lr_min = learning_rate/100
-    lr_T_0 = 5
+    lr_min = learning_rate/1000
+    lr_T_0 = 10
     lr_T_mul = 2
     num_train_batches = 24
 
-    curr_step = global_step // num_train_batches
+    curr_step = tf.to_int32(global_step // num_train_batches)
 
     last_reset = tf.Variable(0, dtype=tf.int32, trainable=False,
         name="last_reset")
