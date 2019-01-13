@@ -27,8 +27,7 @@ import modeling
 import tokenization
 import tensorflow as tf
 import os
-
-os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '2'
 
 flags = tf.flags
 
@@ -83,9 +82,8 @@ flags.DEFINE_bool(
 
 class InputExample(object):
 
-  def __init__(self, unique_id, text_a, text_b, lineid):
+  def __init__(self, unique_id, text_a, text_b):
     self.unique_id = unique_id
-    self.lineid = lineid
     self.text_a = text_a
     self.text_b = text_b
 
@@ -93,11 +91,10 @@ class InputExample(object):
 class InputFeatures(object):
   """A single set of features of data."""
 
-  def __init__(self, unique_id, lineid, tokens, input_ids, input_mask, input_type_ids):
+  def __init__(self, unique_id, tokens, input_ids, input_mask, input_type_ids):
     self.unique_id = unique_id
     self.tokens = tokens
     self.input_ids = input_ids
-    self.lineid = lineid
     self.input_mask = input_mask
     self.input_type_ids = input_type_ids
 
@@ -298,7 +295,6 @@ def convert_examples_to_features(examples, seq_length, tokenizer):
         InputFeatures(
             unique_id=example.unique_id,
             tokens=tokens,
-            lineid=example.lineid,
             input_ids=input_ids,
             input_mask=input_mask,
             input_type_ids=input_type_ids))
@@ -328,37 +324,21 @@ def read_examples(input_file):
   unique_id = 0
   with tf.gfile.GFile(input_file, "r") as reader:
     while True:
-      line = reader.readline()
-      lineParts = line.split('\t')
-      if len(lineParts)==3:
-        line = tokenization.convert_to_unicode(lineParts[1])
-      else:
-        line = tokenization.convert_to_unicode(line)
+      line = tokenization.convert_to_unicode(reader.readline()[3:-2])
       if not line:
         break
       line = line.strip()
-            
       text_a = None
       text_b = None
-        
-      
       m = re.match(r"^(.*) \|\|\| (.*)$", line)
       if m is None:
         text_a = line
       else:
         text_a = m.group(1)
         text_b = m.group(2)
-      
-      if(len(lineParts) == 1):
-        examples.append(
-          InputExample(unique_id=unique_id, text_a=text_a, text_b=text_b, lineid = ""))
-        unique_id += 1
-      else:
-        if len(lineParts)==3:
-          examples.append(InputExample(unique_id=unique_id, text_a=text_a, text_b=text_b,lineid=lineParts[0]+";;"+lineParts[2].strip('\n') ))
-          unique_id += 1
-        else:
-          tf.logging.info('!!!Got the wrong number of arguments!!! Restart job with the correct arguments.')
+      examples.append(
+          InputExample(unique_id=unique_id, text_a=text_a, text_b=text_b))
+      unique_id += 1
   return examples
 
 
@@ -412,7 +392,7 @@ def main(_):
       unique_id = int(result["unique_id"])
       feature = unique_id_to_feature[unique_id]
       output_json = collections.OrderedDict()
-      output_json["linex_index"] = feature.lineid
+      output_json["linex_index"] = unique_id
       all_features = []
       for (i, token) in enumerate(feature.tokens):
         all_layers = []
@@ -427,7 +407,8 @@ def main(_):
         features = collections.OrderedDict()
         features["token"] = token
         features["layers"] = all_layers
-        all_features.append(features)
+        if token == '[CLS]':  # only record the CLS embedding
+          all_features.append(features)
       output_json["features"] = all_features
       writer.write(json.dumps(output_json) + "\n")
 

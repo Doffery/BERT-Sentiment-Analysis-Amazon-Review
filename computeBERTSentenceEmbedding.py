@@ -2,8 +2,8 @@
 import subprocess,os, json
 import numpy as np
 # Try running command from here
-p = subprocess.Popen('python extract_features_n.py --input_file="./input.txt" --output_file="./output_2.jsonl" --vocab_file="../uncased_L-12_H-768_A-12/vocab.txt" --bert_config_file="../uncased_L-12_H-768_A-12/bert_config.json" --init_checkpoint="../uncased_L-12_H-768_A-12/bert_model.ckpt" --layers=-1,-2,-3,-4 --max_seq_length=128 --batch_size=8',stdout=subprocess.PIPE, shell=True)
-p.wait()
+# p = subprocess.Popen('python extract_features_n.py --input_file="./input.txt" --output_file="./output_2.jsonl" --vocab_file="../uncased_L-12_H-768_A-12/vocab.txt" --bert_config_file="../uncased_L-12_H-768_A-12/bert_config.json" --init_checkpoint="../uncased_L-12_H-768_A-12/bert_model.ckpt" --layers=-1,-2,-3,-4 --max_seq_length=128 --batch_size=8',stdout=subprocess.PIPE, shell=True)
+# p.wait()
 # Should be a parameter
 numLayers = 2
 embMode = "MAX"
@@ -75,25 +75,27 @@ def genSentenceEmbedding(data,embMode,numLayers):
             tokenized = tokenized + " " + tokenObj['token']
     return vecSent, tokenized.strip(),line_index
 
-#Open the file and process to aggregate word vectors to get the sentence vectors
-print('Load the json object and write the wrapper')
-with open(outputFile, encoding='utf-8',mode='w') as write_file:
-    with open('output_2.jsonl', encoding='utf-8') as data_file:
-        for line in data_file.readlines() :
-            data = json.loads(line)
-            vecSent,tokenizedSent,index = genSentenceEmbedding(data,embMode,numLayers)
-            print(vecSent)
-            print(tokenizedSent)
-            print(index)
-            id = index.split(';;')[0]
-            label = index.split(';;')[1]
-            if printTokenization == 1:
-                write_file.write(id + "\t" + label + "\t" + tokenizedSent + "\t" ) #" ".join(str(elem) for elem in vecSent))
-            else:
-                write_file.write(id + "\t" + label + "\t" ) #" ".join(str(elem) for elem in vecSent))
-            write_file.write(np.array2string(vecSent, precision=4, separator=' ',suppress_small=True))
-            write_file.write("\n")
+if __name__ == '__name__':
 
-#Extract the embeddings for each word
-print('Options entered: 1) Sentence Embedding Mode: ' + embMode + ' 2) Layers to be considered are: ' + str(numLayers))
-print('The length of the vector being output is: ' + str(len(vecSent)))
+    #Open the file and process to aggregate word vectors to get the sentence vectors
+    print('Load the json object and write the wrapper')
+    with open(outputFile, encoding='utf-8',mode='w') as write_file:
+        with open('output_2.jsonl', encoding='utf-8') as data_file:
+            for line in data_file.readlines() :
+                data = json.loads(line)
+                vecSent,tokenizedSent,index = genSentenceEmbedding(data,embMode,numLayers)
+                print(vecSent)
+                print(tokenizedSent)
+                print(index)
+                id = index.split(';;')[0]
+                label = index.split(';;')[1]
+                if printTokenization == 1:
+                    write_file.write(id + "\t" + label + "\t" + tokenizedSent + "\t" ) #" ".join(str(elem) for elem in vecSent))
+                else:
+                    write_file.write(id + "\t" + label + "\t" ) #" ".join(str(elem) for elem in vecSent))
+                write_file.write(np.array2string(vecSent, precision=4, separator=' ',suppress_small=True))
+                write_file.write("\n")
+
+    #Extract the embeddings for each word
+    print('Options entered: 1) Sentence Embedding Mode: ' + embMode + ' 2) Layers to be considered are: ' + str(numLayers))
+    print('The length of the vector being output is: ' + str(len(vecSent)))

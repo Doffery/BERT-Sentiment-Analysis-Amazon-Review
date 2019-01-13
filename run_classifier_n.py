@@ -19,8 +19,10 @@ from __future__ import division
 from __future__ import print_function
 
 import collections
+import codecs
 import csv
 import os
+import json
 import modeling
 import optimization
 import tokenization
@@ -34,7 +36,7 @@ from utils import DEFINE_integer
 from utils import DEFINE_string
 from utils import print_user_flags
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '2'
 
 logger = utils.logger
 
@@ -46,6 +48,12 @@ DEFINE_string(
     "data_dir", None,
     "The input data dir. Should contain the .tsv files (or other data files) "
     "for the task.")
+
+DEFINE_string("train_data_file", "xa1k", "Data file")
+DEFINE_string("val_data_file", "xab", "Data file")
+DEFINE_string("test_data_file", "xaa", "Data file")
+DEFINE_string("predict_data_file", "tmp", "Data file")
+DEFINE_string("layers", "-1,-2", "")
 
 DEFINE_string(
     "bert_config_file", None,
@@ -208,6 +216,7 @@ class ARProcessor(DataProcessor):
 
   def _clean_text(self, review):
       review = re.sub('\d','0',review)
+      review = re.sub(r'[^\w\s]','', review)
       if 'www.' in review or 'http:' in review or \
             'https:' in review or '.com' in review:
         review = re.sub(r"([^ ]+(?<=\.[a-z]{3}))", "<url>", review)
@@ -225,22 +234,22 @@ class ARProcessor(DataProcessor):
   def get_train_examples(self, data_dir):
     """See base class."""
     return self._create_examples(
-        self._read_csv(os.path.join(data_dir, "./xa200"),'"'), "train")
+        self._read_csv(os.path.join(data_dir, FLAGS.train_data_file),'"'), "train")
 
   def get_dev_examples(self, data_dir):
     """See base class."""
     return self._create_examples(
-        self._read_csv(os.path.join(data_dir, "./xab"), '"'), "validation")
+        self._read_csv(os.path.join(data_dir, FLAGS.val_data_file), '"'), "validation")
 
   def get_mytest_examples(self, data_dir):
     """See base class."""
     return self._create_examples(
-        self._read_csv(os.path.join(data_dir, "./xaa"),'"'), "mytest")
+        self._read_csv(os.path.join(data_dir, FLAGS.test_data_file),'"'), "mytest")
 
   def get_test_examples(self, data_dir):
     """See base class."""
     return self._create_examples(
-        self._read_csv(os.path.join(data_dir, "./tmp"),'"'), "test")
+        self._read_csv(os.path.join(data_dir, FLAGS.predict_data_file),'"'), "test")
 
   def get_labels(self):
     """See base class."""
@@ -464,6 +473,7 @@ def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
   # If you want to use the token-level output, use model.get_sequence_output()
   # instead.
   output_layer = model.get_pooled_output()
+  all_layers = model.get_all_encoder_layers()
 
   hidden_size = output_layer.shape[-1].value
 
@@ -489,12 +499,12 @@ def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
     per_example_loss = -tf.reduce_sum(one_hot_labels * log_probs, axis=-1)
     loss = tf.reduce_mean(per_example_loss)
 
-    return (loss, per_example_loss, logits, probabilities)
+    return (loss, per_example_loss, logits, probabilities, all_layers)
 
 
 def model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate,
                      num_train_steps, num_warmup_steps, use_tpu,
-                     use_one_hot_embeddings):
+                     use_one_hot_embeddings, layer_indexes):
   """Returns `model_fn` closure for TPUEstimator."""
 
   def model_fn(features, labels, mode, params):  # pylint: disable=unused-argument
@@ -511,7 +521,7 @@ def model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate,
 
     is_training = (mode == tf.estimator.ModeKeys.TRAIN)
 
-    (total_loss, per_example_loss, logits, probabilities) = create_model(
+    (total_loss, per_example_loss, logits, probabilities, all_layers) = create_model(
         bert_config, is_training, input_ids, input_mask, segment_ids, label_ids,
         num_labels, use_one_hot_embeddings)
 
@@ -569,8 +579,14 @@ def model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate,
           eval_metrics=eval_metrics,
           scaffold_fn=scaffold_fn)
     else:
+      predictions = {
+              'prob' : probabilities,
+              }
+
+      for (i, layer_index) in enumerate(layer_indexes):
+        predictions["layer_output_%d" % i] = all_layers[layer_index]
       output_spec = tf.contrib.tpu.TPUEstimatorSpec(
-          mode=mode, predictions=probabilities, scaffold_fn=scaffold_fn)
+          mode=mode, predictions=predictions, scaffold_fn=scaffold_fn)
     return output_spec
 
   return model_fn
@@ -656,6 +672,8 @@ def main(_):
       "ar": ARProcessor,
   }
 
+  layer_indexes = [int(x) for x in FLAGS.layers.split(",")]
+
   if not FLAGS.do_train and not FLAGS.do_eval and not FLAGS.do_predict:
     raise ValueError(
         "At least one of `do_train`, `do_eval` or `do_predict' must be True.")
@@ -722,7 +740,8 @@ def main(_):
       num_train_steps=num_train_steps,
       num_warmup_steps=num_warmup_steps,
       use_tpu=FLAGS.use_tpu,
-      use_one_hot_embeddings=FLAGS.use_tpu)
+      use_one_hot_embeddings=FLAGS.use_tpu,
+      layer_indexes=layer_indexes)
 
   # If TPU is not available, this will fall back to normal Estimator on CPU
   # or GPU.
@@ -750,30 +769,30 @@ def main(_):
         is_training=True,
         drop_remainder=True)
 
-    val_file = os.path.join(FLAGS.output_dir, "val.tf_record")
-    val_examples = processor.get_dev_examples(FLAGS.data_dir)
-    if not FLAGS.use_record:
-        file_based_convert_examples_to_features(val_examples, label_list, 
-                                                FLAGS.max_seq_length, 
-                                                tokenizer, val_file)
+    # val_file = os.path.join(FLAGS.output_dir, "val.tf_record")
+    # val_examples = processor.get_dev_examples(FLAGS.data_dir)
+    # if not FLAGS.use_record:
+    #     file_based_convert_examples_to_features(val_examples, label_list, 
+    #                                             FLAGS.max_seq_length, 
+    #                                             tokenizer, val_file)
 
-    tf.logging.info("  Num val examples = %d", len(val_examples))
-    tf.logging.info("  Batch size val = %d", FLAGS.eval_batch_size)
+    # tf.logging.info("  Num val examples = %d", len(val_examples))
+    # tf.logging.info("  Batch size val = %d", FLAGS.eval_batch_size)
 
-    val_drop_remainder = True if FLAGS.use_tpu else False
-    val_input_fn = file_based_input_fn_builder(
-        input_file=val_file,
-        seq_length=FLAGS.max_seq_length,
-        is_training=False,
-        drop_remainder=val_drop_remainder)
+    # val_drop_remainder = True if FLAGS.use_tpu else False
+    # val_input_fn = file_based_input_fn_builder(
+    #     input_file=val_file,
+    #     seq_length=FLAGS.max_seq_length,
+    #     is_training=False,
+    #     drop_remainder=val_drop_remainder)
 
-    train_spec = tf.estimator.TrainSpec(input_fn=train_input_fn,
-                                        max_steps=num_train_steps)
-    val_spec = tf.estimator.EvalSpec(input_fn=val_input_fn)
+    # train_spec = tf.estimator.TrainSpec(input_fn=train_input_fn,
+    #                                     max_steps=num_train_steps)
+    # val_spec = tf.estimator.EvalSpec(input_fn=val_input_fn)
 
 
-    tf.estimator.train_and_evaluate(estimator, train_spec, val_spec)
-    # estimator.train(input_fn=train_input_fn, max_steps=num_train_steps)
+    # tf.estimator.train_and_evaluate(estimator, train_spec, val_spec)
+    estimator.train(input_fn=train_input_fn, max_steps=num_train_steps)
     # result = estimator.evaluate(input_fn=val_input_fn, steps=val_steps)
 
   print('before eval', time.localtime())
@@ -843,15 +862,38 @@ def main(_):
         is_training=False,
         drop_remainder=predict_drop_remainder)
 
-    result = estimator.predict(input_fn=predict_input_fn)
+    emb_file = os.path.join(FLAGS.output_dir, "emb.jsonl")
+    with codecs.getwriter("utf-8")(tf.gfile.Open(emb_file, "w")) as writer:
+      unique_id = -1
+      for result in estimator.predict(predict_input_fn, yield_single_examples=True):
+        unique_id += 1
+        output_json = collections.OrderedDict()
+        output_json["linex_index"] = unique_id
+        all_features = []
+        i = 0
+        all_layers = []
+        for (j, layer_index) in enumerate(layer_indexes):
+          layer_output = result["layer_output_%d" % j]
+          layers = collections.OrderedDict()
+          layers["index"] = layer_index
+          layers["values"] = [
+              round(float(x), 6) for x in layer_output[i:(i + 1)].flat
+          ]
+          all_layers.append(layers)
+        features = collections.OrderedDict()
+        features["token"] = '[CLS]'
+        features["layers"] = all_layers
+        all_features.append(features)
+        output_json["features"] = all_features
+        writer.write(json.dumps(output_json) + "\n")
 
-    output_predict_file = os.path.join(FLAGS.output_dir, "test_results.tsv")
-    with tf.gfile.GFile(output_predict_file, "w") as writer:
-      tf.logging.info("***** Predict results *****")
-      for prediction in result:
-        output_line = "\t".join(
-            str(class_probability) for class_probability in prediction) + "\n"
-        writer.write(output_line)
+    # output_predict_file = os.path.join(FLAGS.output_dir, "test_results.tsv")
+    # with tf.gfile.GFile(output_predict_file, "w") as writer:
+    #   tf.logging.info("***** Predict results *****")
+    #   for prediction in result:
+    #     output_line = "\t".join(
+    #         str(class_prob) for class_prob in prediction['prob']) + "\n"
+    #     writer.write(output_line)
 
   print('End', time.localtime())
 
